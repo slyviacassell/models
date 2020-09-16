@@ -1,3 +1,4 @@
+# Lint as: python2, python3
 # Copyright 2017 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,14 +21,26 @@ Barret Zoph, Vijay Vasudevan, Jonathon Shlens, Quoc V. Le
 https://arxiv.org/abs/1707.07012
 """
 
-import tensorflow as tf
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
+from six.moves import range
+import tensorflow.compat.v1 as tf
+import tf_slim as slim
 
 from object_detection.meta_architectures import faster_rcnn_meta_arch
-from nets.nasnet import nasnet
-from nets.nasnet import nasnet_utils
+from object_detection.utils import variables_helper
 
-arg_scope = tf.contrib.framework.arg_scope
-slim = tf.contrib.slim
+# pylint: disable=g-import-not-at-top
+try:
+  from nets.nasnet import nasnet
+  from nets.nasnet import nasnet_utils
+except:  # pylint: disable=bare-except
+  pass
+# pylint: enable=g-import-not-at-top
+
+arg_scope = slim.arg_scope
 
 
 def nasnet_large_arg_scope_for_detection(is_batch_norm_training=False):
@@ -108,7 +121,7 @@ def _build_nasnet_base(hidden_previous,
   return net
 
 
-# TODO: Only fixed_shape_resizer is currently supported for NASNet
+# TODO(shlens): Only fixed_shape_resizer is currently supported for NASNet
 # featurization. The reason for this is that nasnet.py only supports
 # inputs with fully known shapes. We need to update nasnet.py to handle
 # shapes not known at compile time.
@@ -171,6 +184,8 @@ class FasterRCNNNASFeatureExtractor(
 
     Returns:
       rpn_feature_map: A tensor with shape [batch, height, width, depth]
+      end_points: A dictionary mapping feature extractor tensor names to tensors
+
     Raises:
       ValueError: If the created network is missing the required activation.
     """
@@ -182,10 +197,14 @@ class FasterRCNNNASFeatureExtractor(
 
     with slim.arg_scope(nasnet_large_arg_scope_for_detection(
         is_batch_norm_training=self._train_batch_norm)):
-      _, end_points = nasnet.build_nasnet_large(
-          preprocessed_inputs, num_classes=None,
-          is_training=self._is_training,
-          final_endpoint='Cell_11')
+      with arg_scope([slim.conv2d,
+                      slim.batch_norm,
+                      slim.separable_conv2d],
+                     reuse=self._reuse_weights):
+        _, end_points = nasnet.build_nasnet_large(
+            preprocessed_inputs, num_classes=None,
+            is_training=self._is_training,
+            final_endpoint='Cell_11')
 
     # Note that both 'Cell_10' and 'Cell_11' have equal depth = 2016.
     rpn_feature_map = tf.concat([end_points['Cell_10'],
@@ -198,7 +217,7 @@ class FasterRCNNNASFeatureExtractor(
     rpn_feature_map_shape = [batch] + shape_without_batch
     rpn_feature_map.set_shape(rpn_feature_map_shape)
 
-    return rpn_feature_map
+    return rpn_feature_map, end_points
 
   def _extract_box_classifier_features(self, proposal_feature_maps, scope):
     """Extracts second stage box classifier features.
@@ -227,9 +246,11 @@ class FasterRCNNNASFeatureExtractor(
     # Note that what follows is largely a copy of build_nasnet_large() within
     # nasnet.py. We are copying to minimize code pollution in slim.
 
-    # pylint: disable=protected-access
-    hparams = nasnet._large_imagenet_config(is_training=self._is_training)
-    # pylint: enable=protected-access
+    # TODO(shlens,skornblith): Determine the appropriate drop path schedule.
+    # For now the schedule is the default (1.0->0.7 over 250,000 train steps).
+    hparams = nasnet.large_imagenet_config()
+    if not self._is_training:
+      hparams.set_hparam('drop_path_keep_prob', 1.0)
 
     # Calculate the total number of cells in the network
     # -- Add 2 for the reduction cells.
@@ -299,7 +320,7 @@ class FasterRCNNNASFeatureExtractor(
     # Note that the NAS checkpoint only contains the moving average version of
     # the Variables so we need to generate an appropriate dictionary mapping.
     variables_to_restore = {}
-    for variable in tf.global_variables():
+    for variable in variables_helper.get_global_variables_safely():
       if variable.op.name.startswith(
           first_stage_feature_extractor_scope):
         var_name = variable.op.name.replace(
@@ -313,4 +334,3 @@ class FasterRCNNNASFeatureExtractor(
         var_name += '/ExponentialMovingAverage'
         variables_to_restore[var_name] = variable
     return variables_to_restore
-

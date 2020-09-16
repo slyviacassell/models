@@ -29,15 +29,20 @@ dynamically at generation time.  The number of anchors to place at each location
 is static --- implementations of AnchorGenerator must always be able return
 the number of anchors that it uses per location for each feature map.
 """
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 from abc import ABCMeta
 from abc import abstractmethod
 
-import tensorflow as tf
+import six
+from six.moves import zip
+import tensorflow.compat.v1 as tf
 
 
-class AnchorGenerator(object):
+class AnchorGenerator(six.with_metaclass(ABCMeta, object)):
   """Abstract base class for anchor generators."""
-  __metaclass__ = ABCMeta
 
   @abstractmethod
   def name_scope(self):
@@ -77,8 +82,8 @@ class AnchorGenerator(object):
   def generate(self, feature_map_shape_list, **params):
     """Generates a collection of bounding boxes to be used as anchors.
 
-    TODO: remove **params from argument list and make stride and offsets (for
-        multiple_grid_anchor_generator) constructor arguments.
+    TODO(rathodv): remove **params from argument list and make stride and
+      offsets (for multiple_grid_anchor_generator) constructor arguments.
 
     Args:
       feature_map_shape_list: list of (height, width) pairs in the format
@@ -88,7 +93,9 @@ class AnchorGenerator(object):
       **params: parameters for anchor generation op
 
     Returns:
-      boxes: a BoxList holding a collection of N anchor boxes
+      boxes_list: a list of BoxLists each holding anchor boxes corresponding to
+        the input feature map shapes.
+
     Raises:
       ValueError: if the number of feature map shapes does not match the length
         of NumAnchorsPerLocation.
@@ -98,13 +105,14 @@ class AnchorGenerator(object):
       raise ValueError('Number of feature maps is expected to equal the length '
                        'of `num_anchors_per_location`.')
     with tf.name_scope(self.name_scope()):
-      anchors = self._generate(feature_map_shape_list, **params)
+      anchors_list = self._generate(feature_map_shape_list, **params)
       if self.check_num_anchors:
         with tf.control_dependencies([
             self._assert_correct_number_of_anchors(
-                anchors, feature_map_shape_list)]):
-          anchors.set(tf.identity(anchors.get()))
-      return anchors
+                anchors_list, feature_map_shape_list)]):
+          for item in anchors_list:
+            item.set(tf.identity(item.get()))
+      return anchors_list
 
   @abstractmethod
   def _generate(self, feature_map_shape_list, **params):
@@ -117,15 +125,34 @@ class AnchorGenerator(object):
       **params: parameters for anchor generation op
 
     Returns:
-      boxes: a BoxList holding a collection of N anchor boxes
+      boxes_list: a list of BoxList, each holding a collection of N anchor
+        boxes.
     """
     pass
 
-  def _assert_correct_number_of_anchors(self, anchors, feature_map_shape_list):
+  def anchor_index_to_feature_map_index(self, boxlist_list):
+    """Returns a 1-D array of feature map indices for each anchor.
+
+    Args:
+      boxlist_list: a list of Boxlist, each holding a collection of N anchor
+        boxes. This list is produced in self.generate().
+
+    Returns:
+      A [num_anchors] integer array, where each element indicates which feature
+      map index the anchor belongs to.
+    """
+    feature_map_indices_list = []
+    for i, boxes in enumerate(boxlist_list):
+      feature_map_indices_list.append(
+          i * tf.ones([boxes.num_boxes()], dtype=tf.int32))
+    return tf.concat(feature_map_indices_list, axis=0)
+
+  def _assert_correct_number_of_anchors(self, anchors_list,
+                                        feature_map_shape_list):
     """Assert that correct number of anchors was generated.
 
     Args:
-      anchors: box_list.BoxList object holding anchors generated
+      anchors_list: A list of box_list.BoxList object holding anchors generated.
       feature_map_shape_list: list of (height, width) pairs in the format
         [(height_0, width_0), (height_1, width_1), ...] that the generated
         anchors must align with.
@@ -134,9 +161,11 @@ class AnchorGenerator(object):
         match the number of expected anchors.
     """
     expected_num_anchors = 0
-    for num_anchors_per_location, feature_map_shape in zip(
-        self.num_anchors_per_location(), feature_map_shape_list):
+    actual_num_anchors = 0
+    for num_anchors_per_location, feature_map_shape, anchors in zip(
+        self.num_anchors_per_location(), feature_map_shape_list, anchors_list):
       expected_num_anchors += (num_anchors_per_location
                                * feature_map_shape[0]
                                * feature_map_shape[1])
-    return tf.assert_equal(expected_num_anchors, anchors.num_boxes())
+      actual_num_anchors += anchors.num_boxes()
+    return tf.assert_equal(expected_num_anchors, actual_num_anchors)

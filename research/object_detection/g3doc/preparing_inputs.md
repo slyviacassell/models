@@ -1,6 +1,6 @@
 # Preparing Inputs
 
-Tensorflow Object Detection API reads data using the TFRecord file format. Two
+TensorFlow Object Detection API reads data using the TFRecord file format. Two
 sample scripts (`create_pascal_tf_record.py` and `create_pet_tf_record.py`) are
 provided to convert from the PASCAL VOC dataset and Oxford-IIIT Pet dataset to
 TFRecords.
@@ -36,7 +36,7 @@ The label map for the PASCAL VOC data set can be found at
 
 The Oxford-IIIT Pet data set is located
 [here](http://www.robots.ox.ac.uk/~vgg/data/pets/). To download, extract and
-convert it to TFRecrods, run the following commands below:
+convert it to TFRecords, run the following commands below:
 
 ```bash
 # From tensorflow/models/research/
@@ -50,8 +50,10 @@ python object_detection/dataset_tools/create_pet_tf_record.py \
     --output_dir=`pwd`
 ```
 
-You should end up with two TFRecord files named `pet_train.record` and
-`pet_val.record` in the `tensorflow/models/research/` directory.
+You should end up with two 10-sharded TFRecord files named
+`pet_faces_train.record-?????-of-00010` and
+`pet_faces_val.record-?????-of-00010` in the `tensorflow/models/research/`
+directory.
 
 The label map for the Pet dataset can be found at
 `object_detection/data/pet_label_map.pbtxt`.

@@ -22,12 +22,12 @@ as well as
 Huang et al. (https://arxiv.org/abs/1611.10012)
 """
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+import tf_slim as slim
 
 from object_detection.meta_architectures import faster_rcnn_meta_arch
+from object_detection.utils import variables_helper
 from nets import inception_resnet_v2
-
-slim = tf.contrib.slim
 
 
 class FasterRCNNInceptionResnetV2FeatureExtractor(
@@ -105,12 +105,10 @@ class FasterRCNNInceptionResnetV2FeatureExtractor(
                           is_training=self._train_batch_norm):
         with tf.variable_scope('InceptionResnetV2',
                                reuse=self._reuse_weights) as scope:
-          rpn_feature_map, _ = (
-              inception_resnet_v2.inception_resnet_v2_base(
-                  preprocessed_inputs, final_endpoint='PreAuxLogits',
-                  scope=scope, output_stride=self._first_stage_features_stride,
-                  align_feature_maps=True))
-    return rpn_feature_map
+          return inception_resnet_v2.inception_resnet_v2_base(
+              preprocessed_inputs, final_endpoint='PreAuxLogits',
+              scope=scope, output_stride=self._first_stage_features_stride,
+              align_feature_maps=True)
 
   def _extract_box_classifier_features(self, proposal_feature_maps, scope):
     """Extracts second stage box classifier features.
@@ -180,7 +178,7 @@ class FasterRCNNInceptionResnetV2FeatureExtractor(
     faster_rcnn_meta_arch.FasterRCNNFeatureExtractor which does not work for
     InceptionResnetV2 checkpoints.
 
-    TODO: revisit whether it's possible to force the
+    TODO(jonathanhuang,rathodv): revisit whether it's possible to force the
     `Repeat` namescope as created in `_extract_box_classifier_features` to
     start counting at 2 (e.g. `Repeat_2`) so that the default restore_fn can
     be used.
@@ -197,7 +195,7 @@ class FasterRCNNInceptionResnetV2FeatureExtractor(
     """
 
     variables_to_restore = {}
-    for variable in tf.global_variables():
+    for variable in variables_helper.get_global_variables_safely():
       if variable.op.name.startswith(
           first_stage_feature_extractor_scope):
         var_name = variable.op.name.replace(
@@ -212,4 +210,3 @@ class FasterRCNNInceptionResnetV2FeatureExtractor(
             second_stage_feature_extractor_scope + '/', '')
         variables_to_restore[var_name] = variable
     return variables_to_restore
-

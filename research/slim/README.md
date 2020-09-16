@@ -1,12 +1,9 @@
 # TensorFlow-Slim image classification model library
-
-[TF-slim](https://github.com/tensorflow/tensorflow/tree/master/tensorflow/contrib/slim)
-is a new lightweight high-level API of TensorFlow (`tensorflow.contrib.slim`)
-for defining, training and evaluating complex
-models. This directory contains
-code for training and evaluating several widely used Convolutional Neural
-Network (CNN) image classification models using TF-slim.
-It contains scripts that will allow
+This directory contains code for training and evaluating several
+widely used Convolutional Neural Network (CNN) image classification
+models using
+[tf_slim](https://github.com/google-research/tf-slim/tree/master/tf_slim).
+It contains scripts that allow
 you to train models from scratch or fine-tune them from pre-trained network
 weights. It also contains code for downloading standard image datasets,
 converting them
@@ -15,15 +12,17 @@ data reading and queueing utilities. You can easily train any model on any of
 these datasets, as we demonstrate below. We've also included a
 [jupyter notebook](https://github.com/tensorflow/models/blob/master/research/slim/slim_walkthrough.ipynb),
 which provides working examples of how to use TF-Slim for image classification.
-For developing or modifying your own models, see also the [main TF-Slim page](https://github.com/tensorflow/tensorflow/tree/master/tensorflow/contrib/slim).
+For developing or modifying your own models, see also the [main TF-Slim page](https://github.com/google-research/tf-slim/tree/master/tf_slim).
 
 ## Contacts
 
 Maintainers of TF-slim:
-
-* Nathan Silberman,
-  github: [nathansilberman](https://github.com/nathansilberman)
 * Sergio Guadarrama, github: [sguada](https://github.com/sguada)
+
+## Citation
+"TensorFlow-Slim image classification model library"
+N. Silberman and S. Guadarrama, 2016.
+https://github.com/tensorflow/models/tree/master/research/slim
 
 ## Table of contents
 
@@ -44,12 +43,12 @@ prerequisite packages.
 
 ## Installing latest version of TF-slim
 
-TF-Slim is available as `tf.contrib.slim` via TensorFlow 1.0. To test that your
+TF-Slim is available as `tf_slim` package. To test that your
 installation is working, execute the following command; it should run without
 raising any errors.
 
 ```
-python -c "import tensorflow.contrib.slim as slim; eval = slim.evaluation.evaluate_once"
+python -c "import tf_slim as slim; eval = slim.evaluation.evaluate_once"
 ```
 
 ## Installing the TF-slim image models library
@@ -91,6 +90,7 @@ Flowers|2500 | 2500 | 5 | Various sizes (source: Flickr)
 [Cifar10](https://www.cs.toronto.edu/~kriz/cifar.html) | 60k| 10k | 10 |32x32 color
 [MNIST](http://yann.lecun.com/exdb/mnist/)| 60k | 10k | 10 | 28x28 gray
 [ImageNet](http://www.image-net.org/challenges/LSVRC/2012/)|1.2M| 50k | 1000 | Various sizes
+VisualWakeWords|82783 | 40504 | 2 | Various sizes (source: MS COCO)
 
 ## Downloading and converting to TFRecord format
 
@@ -125,36 +125,37 @@ These represent the training and validation data, sharded over 5 files each.
 You will also find the `$DATA_DIR/labels.txt` file which contains the mapping
 from integer labels to class names.
 
-You can use the same script to create the mnist and cifar10 datasets.
-However, for ImageNet, you have to follow the instructions
+You can use the same script to create the mnist, cifar10 and visualwakewords
+datasets. However, for ImageNet, you have to follow the instructions
 [here](https://github.com/tensorflow/models/blob/master/research/inception/README.md#getting-started).
-Note that you first have to sign up for an account at image-net.org.
-Also, the download can take several hours, and could use up to 500GB.
-
+Note that you first have to sign up for an account at image-net.org. Also, the
+download can take several hours, and could use up to 500GB.
 
 ## Creating a TF-Slim Dataset Descriptor.
 
 Once the TFRecord files have been created, you can easily define a Slim
-[Dataset](https://github.com/tensorflow/tensorflow/blob/r0.10/tensorflow/contrib/slim/python/slim/data/dataset.py),
+[Dataset](https://github.com/google-research/tf-slim/master/tf_slim/data/dataset.py),
 which stores pointers to the data file, as well as various other pieces of
 metadata, such as the class labels, the train/test split, and how to parse the
 TFExample protos. We have included the TF-Slim Dataset descriptors
 for
-[Cifar10](https://github.com/tensorflow/models/blob/master/research/slim/datasets/cifar10.py),
-[ImageNet](https://github.com/tensorflow/models/blob/master/research/slim/datasets/imagenet.py),
 [Flowers](https://github.com/tensorflow/models/blob/master/research/slim/datasets/flowers.py),
+[Cifar10](https://github.com/tensorflow/models/blob/master/research/slim/datasets/cifar10.py),
+[MNIST](https://github.com/tensorflow/models/blob/master/research/slim/datasets/mnist.py),
+[ImageNet](https://github.com/tensorflow/models/blob/master/research/slim/datasets/imagenet.py)
 and
-[MNIST](https://github.com/tensorflow/models/blob/master/research/slim/datasets/mnist.py).
+[VisualWakeWords](https://github.com/tensorflow/models/blob/master/research/slim/datasets/visualwakewords.py),
 An example of how to load data using a TF-Slim dataset descriptor using a
 TF-Slim
-[DatasetDataProvider](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/contrib/slim/python/slim/data/dataset_data_provider.py)
+[DatasetDataProvider](https://github.com/google-research/tf-slim/tree/master/tf_slim/data/dataset_data_provider.py)
 is found below:
 
 ```python
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+import tf_slim as slim
 from datasets import flowers
 
-slim = tf.contrib.slim
+
 
 # Selects the 'validation' dataset.
 dataset = flowers.get_split('validation', DATA_DIR)
@@ -173,7 +174,7 @@ format.
 
 The TFRecord format consists of a set of sharded files where each entry is a serialized `tf.Example` proto. Each `tf.Example` proto contains the ImageNet image (JPEG encoded) as well as metadata such as label and bounding box information.
 
-We provide a single [script](datasets/download_and_preprocess_imagenet.sh) for
+We provide a single [script](datasets/download_and_convert_imagenet.sh) for
 downloading and converting ImageNet data to TFRecord format. Downloading and
 preprocessing the data may take several hours (up to half a day) depending on
 your network and computer speed. Please be patient.
@@ -196,10 +197,10 @@ you will not need to interact with the script again.
 DATA_DIR=$HOME/imagenet-data
 
 # build the preprocessing script.
-bazel build slim/download_and_preprocess_imagenet
+bazel build slim/download_and_convert_imagenet
 
 # run it
-bazel-bin/slim/download_and_preprocess_imagenet "${DATA_DIR}"
+bazel-bin/slim/download_and_convert_imagenet "${DATA_DIR}"
 ```
 
 The final line of the output script should read:
@@ -256,11 +257,15 @@ Model | TF-Slim File | Checkpoint | Top-1 Accuracy| Top-5 Accuracy |
 [ResNet V2 200](https://arxiv.org/abs/1603.05027)|[Code](https://github.com/tensorflow/models/blob/master/research/slim/nets/resnet_v2.py)|[TBA]()|79.9\*|95.2\*|
 [VGG 16](http://arxiv.org/abs/1409.1556.pdf)|[Code](https://github.com/tensorflow/models/blob/master/research/slim/nets/vgg.py)|[vgg_16_2016_08_28.tar.gz](http://download.tensorflow.org/models/vgg_16_2016_08_28.tar.gz)|71.5|89.8|
 [VGG 19](http://arxiv.org/abs/1409.1556.pdf)|[Code](https://github.com/tensorflow/models/blob/master/research/slim/nets/vgg.py)|[vgg_19_2016_08_28.tar.gz](http://download.tensorflow.org/models/vgg_19_2016_08_28.tar.gz)|71.1|89.8|
-[MobileNet_v1_1.0_224](https://arxiv.org/pdf/1704.04861.pdf)|[Code](https://github.com/tensorflow/models/blob/master/research/slim/nets/mobilenet_v1.py)|[mobilenet_v1_1.0_224_2017_06_14.tar.gz](http://download.tensorflow.org/models/mobilenet_v1_1.0_224_2017_06_14.tar.gz)|70.7|89.5|
-[MobileNet_v1_0.50_160](https://arxiv.org/pdf/1704.04861.pdf)|[Code](https://github.com/tensorflow/models/blob/master/research/slim/nets/mobilenet_v1.py)|[mobilenet_v1_0.50_160_2017_06_14.tar.gz](http://download.tensorflow.org/models/mobilenet_v1_0.50_160_2017_06_14.tar.gz)|59.9|82.5|
-[MobileNet_v1_0.25_128](https://arxiv.org/pdf/1704.04861.pdf)|[Code](https://github.com/tensorflow/models/blob/master/research/slim/nets/mobilenet_v1.py)|[mobilenet_v1_0.25_128_2017_06_14.tar.gz](http://download.tensorflow.org/models/mobilenet_v1_0.25_128_2017_06_14.tar.gz)|41.3|66.2|
+[MobileNet_v1_1.0_224](https://arxiv.org/pdf/1704.04861.pdf)|[Code](https://github.com/tensorflow/models/blob/master/research/slim/nets/mobilenet_v1.py)|[mobilenet_v1_1.0_224.tgz](http://download.tensorflow.org/models/mobilenet_v1_2018_02_22/mobilenet_v1_1.0_224.tgz)|70.9|89.9|
+[MobileNet_v1_0.50_160](https://arxiv.org/pdf/1704.04861.pdf)|[Code](https://github.com/tensorflow/models/blob/master/research/slim/nets/mobilenet_v1.py)|[mobilenet_v1_0.50_160.tgz](http://download.tensorflow.org/models/mobilenet_v1_2018_02_22/mobilenet_v1_0.5_160.tgz)|59.1|81.9|
+[MobileNet_v1_0.25_128](https://arxiv.org/pdf/1704.04861.pdf)|[Code](https://github.com/tensorflow/models/blob/master/research/slim/nets/mobilenet_v1.py)|[mobilenet_v1_0.25_128.tgz](http://download.tensorflow.org/models/mobilenet_v1_2018_02_22/mobilenet_v1_0.25_128.tgz)|41.5|66.3|
+[MobileNet_v2_1.4_224^*](https://arxiv.org/abs/1801.04381)|[Code](https://github.com/tensorflow/models/blob/master/research/slim/nets/mobilenet/mobilenet_v2.py)| [mobilenet_v2_1.4_224.tgz](https://storage.googleapis.com/mobilenet_v2/checkpoints/mobilenet_v2_1.4_224.tgz) | 74.9 | 92.5|
+[MobileNet_v2_1.0_224^*](https://arxiv.org/abs/1801.04381)|[Code](https://github.com/tensorflow/models/blob/master/research/slim/nets/mobilenet/mobilenet_v2.py)| [mobilenet_v2_1.0_224.tgz](https://storage.googleapis.com/mobilenet_v2/checkpoints/mobilenet_v2_1.0_224.tgz) | 71.9 | 91.0
 [NASNet-A_Mobile_224](https://arxiv.org/abs/1707.07012)#|[Code](https://github.com/tensorflow/models/blob/master/research/slim/nets/nasnet/nasnet.py)|[nasnet-a_mobile_04_10_2017.tar.gz](https://storage.googleapis.com/download.tensorflow.org/models/nasnet-a_mobile_04_10_2017.tar.gz)|74.0|91.6|
 [NASNet-A_Large_331](https://arxiv.org/abs/1707.07012)#|[Code](https://github.com/tensorflow/models/blob/master/research/slim/nets/nasnet/nasnet.py)|[nasnet-a_large_04_10_2017.tar.gz](https://storage.googleapis.com/download.tensorflow.org/models/nasnet-a_large_04_10_2017.tar.gz)|82.7|96.2|
+[PNASNet-5_Large_331](https://arxiv.org/abs/1712.00559)|[Code](https://github.com/tensorflow/models/blob/master/research/slim/nets/nasnet/pnasnet.py)|[pnasnet-5_large_2017_12_13.tar.gz](https://storage.googleapis.com/download.tensorflow.org/models/pnasnet-5_large_2017_12_13.tar.gz)|82.9|96.2|
+[PNASNet-5_Mobile_224](https://arxiv.org/abs/1712.00559)|[Code](https://github.com/tensorflow/models/blob/master/research/slim/nets/nasnet/pnasnet.py)|[pnasnet-5_mobile_2017_12_13.tar.gz](https://storage.googleapis.com/download.tensorflow.org/models/pnasnet-5_mobile_2017_12_13.tar.gz)|74.2|91.9|
 
 ^ ResNet V2 models use Inception pre-processing and input image size of 299 (use
 `--preprocessing_name inception --eval_image_size 299` when using
@@ -269,7 +274,11 @@ reported on the ImageNet validation set.
 
 (#) More information and details about the NASNet architectures are available at this [README](nets/nasnet/README.md)
 
-All 16 MobileNet Models reported in the [MobileNet Paper](https://arxiv.org/abs/1704.04861) can be found [here](https://github.com/tensorflow/models/tree/master/research/slim/nets/mobilenet_v1.md).
+All 16 float MobileNet V1 models reported in the [MobileNet Paper](https://arxiv.org/abs/1704.04861) and all
+16 quantized [TensorFlow Lite](https://www.tensorflow.org/mobile/tflite/) compatible MobileNet V1 models can be found
+[here](https://github.com/tensorflow/models/tree/master/research/slim/nets/mobilenet_v1.md).
+
+(^#) More details on MobileNetV2 models can be found [here](nets/mobilenet/README.md).
 
 (\*): Results quoted from the [paper](https://arxiv.org/abs/1603.05027).
 
@@ -397,7 +406,7 @@ $ python eval_image_classifier.py \
     --model_name=inception_v3
 ```
 
-See the [evaluation module example](https://github.com/tensorflow/tensorflow/tree/master/tensorflow/contrib/slim#evaluation-loop)
+See the [evaluation module example](https://github.com/google-research/tf-slim#evaluation-loop)
 for an example of how to evaluate a model at multiple checkpoints during or after the training.
 
 # Exporting the Inference Graph

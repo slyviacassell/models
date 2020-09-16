@@ -18,14 +18,15 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+import tf_slim as slim
+
+from tensorflow.contrib import quantize as contrib_quantize
 
 from datasets import dataset_factory
 from deployment import model_deploy
 from nets import nets_factory
 from preprocessing import preprocessing_factory
-
-slim = tf.contrib.slim
 
 tf.app.flags.DEFINE_string(
     'master', '', 'The address of the TensorFlow master to use.')
@@ -33,9 +34,16 @@ tf.app.flags.DEFINE_string(
 tf.app.flags.DEFINE_string(
     'train_dir', '/tmp/tfmodel/',
     'Directory where checkpoints and event logs are written to.')
+tf.app.flags.DEFINE_float(
+    'warmup_epochs', 0,
+    'Linearly warmup learning rate from 0 to learning_rate over this '
+    'many epochs.')
 
 tf.app.flags.DEFINE_integer('num_clones', 1,
-                            'Number of model clones to deploy.')
+                            'Number of model clones to deploy. Note For '
+                            'historical reasons loss from all clones averaged '
+                            'out and learning rate decay happen per clone '
+                            'epochs')
 
 tf.app.flags.DEFINE_boolean('clone_on_cpu', False,
                             'Use CPUs to deploy clones.')
@@ -121,6 +129,11 @@ tf.app.flags.DEFINE_float('rmsprop_momentum', 0.9, 'Momentum.')
 
 tf.app.flags.DEFINE_float('rmsprop_decay', 0.9, 'Decay term for RMSProp.')
 
+tf.app.flags.DEFINE_integer(
+    'quantize_delay', -1,
+    'Number of steps to start quantized training. Set to -1 would disable '
+    'quantized training.')
+
 #######################
 # Learning Rate Flags #
 #######################
@@ -145,7 +158,10 @@ tf.app.flags.DEFINE_float(
 
 tf.app.flags.DEFINE_float(
     'num_epochs_per_decay', 2.0,
-    'Number of epochs after which learning rate decays.')
+    'Number of epochs after which learning rate decays. Note: this flag counts '
+    'epochs per clone but aggregates per sync replicas. So 1.0 means that '
+    'each clone will go over full epoch individually, but replicas will go '
+    'once across all replicas.')
 
 tf.app.flags.DEFINE_bool(
     'sync_replicas', False,
@@ -195,6 +211,9 @@ tf.app.flags.DEFINE_integer(
 tf.app.flags.DEFINE_integer('max_number_of_steps', None,
                             'The maximum number of training steps.')
 
+tf.app.flags.DEFINE_bool('use_grayscale', False,
+                         'Whether to convert input images to grayscale.')
+
 #####################
 # Fine-Tuning Flags #
 #####################
@@ -233,31 +252,44 @@ def _configure_learning_rate(num_samples_per_epoch, global_step):
   Raises:
     ValueError: if
   """
-  decay_steps = int(num_samples_per_epoch / FLAGS.batch_size *
-                    FLAGS.num_epochs_per_decay)
+  # Note: when num_clones is > 1, this will actually have each clone to go
+  # over each epoch FLAGS.num_epochs_per_decay times. This is different
+  # behavior from sync replicas and is expected to produce different results.
+  steps_per_epoch = num_samples_per_epoch / FLAGS.batch_size
   if FLAGS.sync_replicas:
-    decay_steps /= FLAGS.replicas_to_aggregate
+    steps_per_epoch /= FLAGS.replicas_to_aggregate
+
+  decay_steps = int(steps_per_epoch * FLAGS.num_epochs_per_decay)
 
   if FLAGS.learning_rate_decay_type == 'exponential':
-    return tf.train.exponential_decay(FLAGS.learning_rate,
-                                      global_step,
-                                      decay_steps,
-                                      FLAGS.learning_rate_decay_factor,
-                                      staircase=True,
-                                      name='exponential_decay_learning_rate')
+    learning_rate = tf.train.exponential_decay(
+        FLAGS.learning_rate,
+        global_step,
+        decay_steps,
+        FLAGS.learning_rate_decay_factor,
+        staircase=True,
+        name='exponential_decay_learning_rate')
   elif FLAGS.learning_rate_decay_type == 'fixed':
-    return tf.constant(FLAGS.learning_rate, name='fixed_learning_rate')
+    learning_rate = tf.constant(FLAGS.learning_rate, name='fixed_learning_rate')
   elif FLAGS.learning_rate_decay_type == 'polynomial':
-    return tf.train.polynomial_decay(FLAGS.learning_rate,
-                                     global_step,
-                                     decay_steps,
-                                     FLAGS.end_learning_rate,
-                                     power=1.0,
-                                     cycle=False,
-                                     name='polynomial_decay_learning_rate')
+    learning_rate = tf.train.polynomial_decay(
+        FLAGS.learning_rate,
+        global_step,
+        decay_steps,
+        FLAGS.end_learning_rate,
+        power=1.0,
+        cycle=False,
+        name='polynomial_decay_learning_rate')
   else:
-    raise ValueError('learning_rate_decay_type [%s] was not recognized',
+    raise ValueError('learning_rate_decay_type [%s] was not recognized' %
                      FLAGS.learning_rate_decay_type)
+
+  if FLAGS.warmup_epochs:
+    warmup_lr = (
+        FLAGS.learning_rate * tf.cast(global_step, tf.float32) /
+        (steps_per_epoch * FLAGS.warmup_epochs))
+    learning_rate = tf.minimum(warmup_lr, learning_rate)
+  return learning_rate
 
 
 def _configure_optimizer(learning_rate):
@@ -308,7 +340,7 @@ def _configure_optimizer(learning_rate):
   elif FLAGS.optimizer == 'sgd':
     optimizer = tf.train.GradientDescentOptimizer(learning_rate)
   else:
-    raise ValueError('Optimizer [%s] was not recognized', FLAGS.optimizer)
+    raise ValueError('Optimizer [%s] was not recognized' % FLAGS.optimizer)
   return optimizer
 
 
@@ -340,12 +372,10 @@ def _get_init_fn():
   # TODO(sguada) variables.filter_variables()
   variables_to_restore = []
   for var in slim.get_model_variables():
-    excluded = False
     for exclusion in exclusions:
       if var.op.name.startswith(exclusion):
-        excluded = True
         break
-    if not excluded:
+    else:
       variables_to_restore.append(var)
 
   if tf.gfile.IsDirectory(FLAGS.checkpoint_path):
@@ -420,7 +450,8 @@ def main(_):
     preprocessing_name = FLAGS.preprocessing_name or FLAGS.model_name
     image_preprocessing_fn = preprocessing_factory.get_preprocessing(
         preprocessing_name,
-        is_training=True)
+        is_training=True,
+        use_grayscale=FLAGS.use_grayscale)
 
     ##############################################################
     # Create a dataset provider that loads data from the dataset #
@@ -503,6 +534,9 @@ def main(_):
     else:
       moving_average_variables, variable_averages = None, None
 
+    if FLAGS.quantize_delay >= 0:
+      contrib_quantize.create_training_graph(quant_delay=FLAGS.quantize_delay)
+
     #########################################
     # Configure the optimization procedure. #
     #########################################
@@ -551,7 +585,6 @@ def main(_):
 
     # Merge all summaries together.
     summary_op = tf.summary.merge(list(summaries), name='summary_op')
-
 
     ###########################
     # Kicks off the training. #

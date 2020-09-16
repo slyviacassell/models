@@ -16,8 +16,11 @@
 """A function to build an object detection matcher from configuration."""
 
 from object_detection.matchers import argmax_matcher
-from object_detection.matchers import bipartite_matcher
 from object_detection.protos import matcher_pb2
+from object_detection.utils import tf_version
+
+if tf_version.is_tf1():
+  from object_detection.matchers import bipartite_matcher  # pylint: disable=g-import-not-at-top
 
 
 def build(matcher_config):
@@ -45,7 +48,11 @@ def build(matcher_config):
         matched_threshold=matched_threshold,
         unmatched_threshold=unmatched_threshold,
         negatives_lower_than_unmatched=matcher.negatives_lower_than_unmatched,
-        force_match_for_each_row=matcher.force_match_for_each_row)
+        force_match_for_each_row=matcher.force_match_for_each_row,
+        use_matmul_gather=matcher.use_matmul_gather)
   if matcher_config.WhichOneof('matcher_oneof') == 'bipartite_matcher':
-    return bipartite_matcher.GreedyBipartiteMatcher()
+    if tf_version.is_tf2():
+      raise ValueError('bipartite_matcher is not supported in TF 2.X')
+    matcher = matcher_config.bipartite_matcher
+    return bipartite_matcher.GreedyBipartiteMatcher(matcher.use_matmul_gather)
   raise ValueError('Empty matcher.')

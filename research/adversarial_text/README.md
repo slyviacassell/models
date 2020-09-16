@@ -1,17 +1,19 @@
+![TensorFlow Requirement: 1.x](https://img.shields.io/badge/TensorFlow%20Requirement-1.x-brightgreen)
+![TensorFlow 2 Not Supported](https://img.shields.io/badge/TensorFlow%202%20Not%20Supported-%E2%9C%95-red.svg)
+
 # Adversarial Text Classification
 
 Code for [*Adversarial Training Methods for Semi-Supervised Text Classification*](https://arxiv.org/abs/1605.07725) and [*Semi-Supervised Sequence Learning*](https://arxiv.org/abs/1511.01432).
 
 ## Requirements
 
-* Bazel ([install](https://bazel.build/versions/master/docs/install.html))
-* TensorFlow >= v1.1
+* TensorFlow >= v1.3
 
 ## End-to-end IMDB Sentiment Classification
 
 ### Fetch data
 
-```
+```bash
 $ wget http://ai.stanford.edu/~amaas/data/sentiment/aclImdb_v1.tar.gz \
     -O /tmp/imdb.tar.gz
 $ tar -xf /tmp/imdb.tar.gz -C /tmp
@@ -21,9 +23,9 @@ The directory `/tmp/aclImdb` contains the raw IMDB data.
 
 ### Generate vocabulary
 
-```
+```bash
 $ IMDB_DATA_DIR=/tmp/imdb
-$ bazel run data:gen_vocab -- \
+$ python gen_vocab.py \
     --output_dir=$IMDB_DATA_DIR \
     --dataset=imdb \
     --imdb_input_dir=/tmp/aclImdb \
@@ -34,8 +36,8 @@ Vocabulary and frequency files will be generated in `$IMDB_DATA_DIR`.
 
 ###  Generate training, validation, and test data
 
-```
-$ bazel run data:gen_data -- \
+```bash
+$ python gen_data.py \
     --output_dir=$IMDB_DATA_DIR \
     --dataset=imdb \
     --imdb_input_dir=/tmp/aclImdb \
@@ -47,12 +49,12 @@ $ bazel run data:gen_data -- \
 
 ### Pretrain IMDB Language Model
 
-```
+```bash
 $ PRETRAIN_DIR=/tmp/models/imdb_pretrain
-$ bazel run :pretrain -- \
+$ python pretrain.py \
     --train_dir=$PRETRAIN_DIR \
     --data_dir=$IMDB_DATA_DIR \
-    --vocab_size=86934 \
+    --vocab_size=87007 \
     --embedding_dims=256 \
     --rnn_cell_size=1024 \
     --num_candidate_samples=1024 \
@@ -75,13 +77,13 @@ addition of `pretrained_model_dir`, from which the classifier will load the
 pretrained embedding and LSTM variables, and flags related to adversarial
 training and classification.
 
-```
+```bash
 $ TRAIN_DIR=/tmp/models/imdb_classify
-$ bazel run :train_classifier -- \
+$ python train_classifier.py \
     --train_dir=$TRAIN_DIR \
     --pretrained_model_dir=$PRETRAIN_DIR \
     --data_dir=$IMDB_DATA_DIR \
-    --vocab_size=86934 \
+    --vocab_size=87007 \
     --embedding_dims=256 \
     --rnn_cell_size=1024 \
     --cl_num_layers=1 \
@@ -100,16 +102,16 @@ $ bazel run :train_classifier -- \
 
 ### Evaluate on test data
 
-```
+```bash
 $ EVAL_DIR=/tmp/models/imdb_eval
-$ bazel run :evaluate -- \
+$ python evaluate.py \
     --eval_dir=$EVAL_DIR \
     --checkpoint_dir=$TRAIN_DIR \
     --eval_data=test \
     --run_once \
     --num_examples=25000 \
     --data_dir=$IMDB_DATA_DIR \
-    --vocab_size=86934 \
+    --vocab_size=87007 \
     --embedding_dims=256 \
     --rnn_cell_size=1024 \
     --batch_size=256 \
@@ -145,8 +147,8 @@ Flags particular to each job are defined in the main binary files.
 
 ### Data Generation
 
-*   Vocabulary generation: [`gen_vocab.py`](https://github.com/tensorflow/models/tree/master/research/adversarial_text/data/gen_vocab.py)
-*   Data generation: [`gen_data.py`](https://github.com/tensorflow/models/tree/master/research/adversarial_text/data/gen_data.py)
+*   Vocabulary generation: [`gen_vocab.py`](https://github.com/tensorflow/models/tree/master/research/adversarial_text/gen_vocab.py)
+*   Data generation: [`gen_data.py`](https://github.com/tensorflow/models/tree/master/research/adversarial_text/gen_data.py)
 
 Command-line flags defined in [`document_generators.py`](https://github.com/tensorflow/models/tree/master/research/adversarial_text/data/document_generators.py)
 control which dataset is processed and how.
@@ -154,3 +156,5 @@ control which dataset is processed and how.
 ## Contact for Issues
 
 * Ryan Sepassi, @rsepassi
+* Andrew M. Dai, @a-dai <adai@google.com>
+* Takeru Miyato, @takerum (Original implementation)

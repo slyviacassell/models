@@ -19,8 +19,12 @@ Example box operations that are supported:
   * Areas: compute bounding box areas
   * IOU: pairwise intersection-over-union scores
 """
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
 import numpy as np
+from six.moves import range
 
 from object_detection.utils import np_box_list
 from object_detection.utils import np_box_ops
@@ -96,7 +100,7 @@ def ioa(boxlist1, boxlist2):
 def gather(boxlist, indices, fields=None):
   """Gather boxes from BoxList according to indices and return new BoxList.
 
-  By default, Gather returns boxes corresponding to the input index list, as
+  By default, gather returns boxes corresponding to the input index list, as
   well as all additional fields stored in the boxlist (indexing into the
   first dimension).  However one can optionally only gather from a
   subset of fields.
@@ -214,7 +218,7 @@ def non_max_suppression(boxlist,
   is_index_valid = np.full(num_boxes, 1, dtype=bool)
   selected_indices = []
   num_output = 0
-  for i in xrange(num_boxes):
+  for i in range(num_boxes):
     if num_output < max_output_size:
       if is_index_valid[i]:
         num_output += 1
@@ -332,7 +336,7 @@ def scale(boxlist, y_scale, x_scale):
   return scaled_boxlist
 
 
-def clip_to_window(boxlist, window):
+def clip_to_window(boxlist, window, filter_nonoverlapping=True):
   """Clip bounding boxes to a window.
 
   This op clips input bounding boxes (represented by bounding box
@@ -344,6 +348,8 @@ def clip_to_window(boxlist, window):
     window: a numpy array of shape [4] representing the
             [y_min, x_min, y_max, x_max] window to which the op
             should clip boxes.
+    filter_nonoverlapping: whether to filter out boxes that do not overlap at
+      all with the window.
 
   Returns:
     a BoxList holding M_out boxes where M_out <= M_in
@@ -360,10 +366,12 @@ def clip_to_window(boxlist, window):
   clipped = np_box_list.BoxList(
       np.hstack([y_min_clipped, x_min_clipped, y_max_clipped, x_max_clipped]))
   clipped = _copy_extra_fields(clipped, boxlist)
-  areas = area(clipped)
-  nonzero_area_indices = np.reshape(np.nonzero(np.greater(areas, 0.0)),
-                                    [-1]).astype(np.int32)
-  return gather(clipped, nonzero_area_indices)
+  if filter_nonoverlapping:
+    areas = area(clipped)
+    nonzero_area_indices = np.reshape(
+        np.nonzero(np.greater(areas, 0.0)), [-1]).astype(np.int32)
+    clipped = gather(clipped, nonzero_area_indices)
+  return clipped
 
 
 def prune_non_overlapping_boxes(boxlist1, boxlist2, minoverlap=0.0):

@@ -19,12 +19,13 @@ from __future__ import division
 from __future__ import print_function
 
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+import tf_slim as slim
 
 from nets import resnet_utils
 from nets import resnet_v1
 
-slim = tf.contrib.slim
+tf.disable_resource_variables()
 
 
 def create_test_input(batch_size, height, width, channels):
@@ -44,26 +45,26 @@ def create_test_input(batch_size, height, width, channels):
   if None in [batch_size, height, width, channels]:
     return tf.placeholder(tf.float32, (batch_size, height, width, channels))
   else:
-    return tf.to_float(
+    return tf.cast(
         np.tile(
             np.reshape(
                 np.reshape(np.arange(height), [height, 1]) +
                 np.reshape(np.arange(width), [1, width]),
-                [1, height, width, 1]),
-            [batch_size, 1, 1, channels]))
+                [1, height, width, 1]), [batch_size, 1, 1, channels]),
+        dtype=tf.float32)
 
 
 class ResnetUtilsTest(tf.test.TestCase):
 
   def testSubsampleThreeByThree(self):
-    x = tf.reshape(tf.to_float(tf.range(9)), [1, 3, 3, 1])
+    x = tf.reshape(tf.cast(tf.range(9), dtype=tf.float32), [1, 3, 3, 1])
     x = resnet_utils.subsample(x, 2)
     expected = tf.reshape(tf.constant([0, 2, 6, 8]), [1, 2, 2, 1])
     with self.test_session():
       self.assertAllClose(x.eval(), expected.eval())
 
   def testSubsampleFourByFour(self):
-    x = tf.reshape(tf.to_float(tf.range(16)), [1, 4, 4, 1])
+    x = tf.reshape(tf.cast(tf.range(16), dtype=tf.float32), [1, 4, 4, 1])
     x = resnet_utils.subsample(x, 2)
     expected = tf.reshape(tf.constant([0, 2, 8, 10]), [1, 2, 2, 1])
     with self.test_session():
@@ -84,23 +85,20 @@ class ResnetUtilsTest(tf.test.TestCase):
     tf.get_variable_scope().reuse_variables()
 
     y1 = slim.conv2d(x, 1, [3, 3], stride=1, scope='Conv')
-    y1_expected = tf.to_float([[14, 28, 43, 26],
-                               [28, 48, 66, 37],
-                               [43, 66, 84, 46],
-                               [26, 37, 46, 22]])
+    y1_expected = tf.cast([[14, 28, 43, 26], [28, 48, 66, 37], [43, 66, 84, 46],
+                           [26, 37, 46, 22]],
+                          dtype=tf.float32)
     y1_expected = tf.reshape(y1_expected, [1, n, n, 1])
 
     y2 = resnet_utils.subsample(y1, 2)
-    y2_expected = tf.to_float([[14, 43],
-                               [43, 84]])
+    y2_expected = tf.cast([[14, 43], [43, 84]], dtype=tf.float32)
     y2_expected = tf.reshape(y2_expected, [1, n2, n2, 1])
 
     y3 = resnet_utils.conv2d_same(x, 1, 3, stride=2, scope='Conv')
     y3_expected = y2_expected
 
     y4 = slim.conv2d(x, 1, [3, 3], stride=2, scope='Conv')
-    y4_expected = tf.to_float([[48, 37],
-                               [37, 22]])
+    y4_expected = tf.cast([[48, 37], [37, 22]], dtype=tf.float32)
     y4_expected = tf.reshape(y4_expected, [1, n2, n2, 1])
 
     with self.test_session() as sess:
@@ -125,17 +123,15 @@ class ResnetUtilsTest(tf.test.TestCase):
     tf.get_variable_scope().reuse_variables()
 
     y1 = slim.conv2d(x, 1, [3, 3], stride=1, scope='Conv')
-    y1_expected = tf.to_float([[14, 28, 43, 58, 34],
-                               [28, 48, 66, 84, 46],
-                               [43, 66, 84, 102, 55],
-                               [58, 84, 102, 120, 64],
-                               [34, 46, 55, 64, 30]])
+    y1_expected = tf.cast(
+        [[14, 28, 43, 58, 34], [28, 48, 66, 84, 46], [43, 66, 84, 102, 55],
+         [58, 84, 102, 120, 64], [34, 46, 55, 64, 30]],
+        dtype=tf.float32)
     y1_expected = tf.reshape(y1_expected, [1, n, n, 1])
 
     y2 = resnet_utils.subsample(y1, 2)
-    y2_expected = tf.to_float([[14, 43, 34],
-                               [43, 84, 55],
-                               [34, 55, 30]])
+    y2_expected = tf.cast([[14, 43, 34], [43, 84, 55], [34, 55, 30]],
+                          dtype=tf.float32)
     y2_expected = tf.reshape(y2_expected, [1, n2, n2, 1])
 
     y3 = resnet_utils.conv2d_same(x, 1, 3, stride=2, scope='Conv')
@@ -185,7 +181,7 @@ class ResnetUtilsTest(tf.test.TestCase):
         'tiny/block2/unit_2/bottleneck_v1/conv1',
         'tiny/block2/unit_2/bottleneck_v1/conv2',
         'tiny/block2/unit_2/bottleneck_v1/conv3']
-    self.assertItemsEqual(expected, end_points)
+    self.assertItemsEqual(expected, end_points.keys())
 
   def _stack_blocks_nondense(self, net, blocks):
     """A simplified ResNet Block stacker without output stride control."""
@@ -240,6 +236,70 @@ class ResnetUtilsTest(tf.test.TestCase):
               output, expected = sess.run([output, expected])
               self.assertAllClose(output, expected, atol=1e-4, rtol=1e-4)
 
+  def testStridingLastUnitVsSubsampleBlockEnd(self):
+    """Compares subsampling at the block's last unit or block's end.
+
+    Makes sure that the final output is the same when we use a stride at the
+    last unit of a block vs. we subsample activations at the end of a block.
+    """
+    block = resnet_v1.resnet_v1_block
+
+    blocks = [
+        block('block1', base_depth=1, num_units=2, stride=2),
+        block('block2', base_depth=2, num_units=2, stride=2),
+        block('block3', base_depth=4, num_units=2, stride=2),
+        block('block4', base_depth=8, num_units=2, stride=1),
+    ]
+
+    # Test both odd and even input dimensions.
+    height = 30
+    width = 31
+    with slim.arg_scope(resnet_utils.resnet_arg_scope()):
+      with slim.arg_scope([slim.batch_norm], is_training=False):
+        for output_stride in [1, 2, 4, 8, None]:
+          with tf.Graph().as_default():
+            with self.test_session() as sess:
+              tf.set_random_seed(0)
+              inputs = create_test_input(1, height, width, 3)
+
+              # Subsampling at the last unit of the block.
+              output = resnet_utils.stack_blocks_dense(
+                  inputs, blocks, output_stride,
+                  store_non_strided_activations=False,
+                  outputs_collections='output')
+              output_end_points = slim.utils.convert_collection_to_dict(
+                  'output')
+
+              # Make the two networks use the same weights.
+              tf.get_variable_scope().reuse_variables()
+
+              # Subsample activations at the end of the blocks.
+              expected = resnet_utils.stack_blocks_dense(
+                  inputs, blocks, output_stride,
+                  store_non_strided_activations=True,
+                  outputs_collections='expected')
+              expected_end_points = slim.utils.convert_collection_to_dict(
+                  'expected')
+
+              sess.run(tf.global_variables_initializer())
+
+              # Make sure that the final output is the same.
+              output, expected = sess.run([output, expected])
+              self.assertAllClose(output, expected, atol=1e-4, rtol=1e-4)
+
+              # Make sure that intermediate block activations in
+              # output_end_points are subsampled versions of the corresponding
+              # ones in expected_end_points.
+              for i, block in enumerate(blocks[:-1:]):
+                output = output_end_points[block.scope]
+                expected = expected_end_points[block.scope]
+                atrous_activated = (output_stride is not None and
+                                    2 ** i >= output_stride)
+                if not atrous_activated:
+                  expected = resnet_utils.subsample(expected, 2)
+                output, expected = sess.run([output, expected])
+                self.assertAllClose(output, expected, atol=1e-4, rtol=1e-4)
+
 
 class ResnetCompleteNetworkTest(tf.test.TestCase):
   """Tests with complete small ResNet v1 networks."""
@@ -279,6 +339,25 @@ class ResnetCompleteNetworkTest(tf.test.TestCase):
       logits, end_points = self._resnet_small(inputs, num_classes,
                                               global_pool=global_pool,
                                               spatial_squeeze=False,
+                                              scope='resnet')
+    self.assertTrue(logits.op.name.startswith('resnet/logits'))
+    self.assertListEqual(logits.get_shape().as_list(), [2, 1, 1, num_classes])
+    self.assertTrue('predictions' in end_points)
+    self.assertListEqual(end_points['predictions'].get_shape().as_list(),
+                         [2, 1, 1, num_classes])
+    self.assertTrue('global_pool' in end_points)
+    self.assertListEqual(end_points['global_pool'].get_shape().as_list(),
+                         [2, 1, 1, 32])
+
+  def testClassificationEndPointsWithNoBatchNormArgscope(self):
+    global_pool = True
+    num_classes = 10
+    inputs = create_test_input(2, 224, 224, 3)
+    with slim.arg_scope(resnet_utils.resnet_arg_scope()):
+      logits, end_points = self._resnet_small(inputs, num_classes,
+                                              global_pool=global_pool,
+                                              spatial_squeeze=False,
+                                              is_training=None,
                                               scope='resnet')
     self.assertTrue(logits.op.name.startswith('resnet/logits'))
     self.assertListEqual(logits.get_shape().as_list(), [2, 1, 1, num_classes])
@@ -467,6 +546,82 @@ class ResnetCompleteNetworkTest(tf.test.TestCase):
       output = sess.run(output, {inputs: images.eval()})
       self.assertEqual(output.shape, (batch, 9, 9, 32))
 
+  def testDepthMultiplier(self):
+    resnets = [
+        resnet_v1.resnet_v1_50, resnet_v1.resnet_v1_101,
+        resnet_v1.resnet_v1_152, resnet_v1.resnet_v1_200
+    ]
+    resnet_names = [
+        'resnet_v1_50', 'resnet_v1_101', 'resnet_v1_152', 'resnet_v1_200'
+    ]
+    for resnet, resnet_name in zip(resnets, resnet_names):
+      depth_multiplier = 0.25
+      global_pool = True
+      num_classes = 10
+      inputs = create_test_input(2, 224, 224, 3)
+      with slim.arg_scope(resnet_utils.resnet_arg_scope()):
+        scope_base = resnet_name + '_base'
+        _, end_points_base = resnet(
+            inputs,
+            num_classes,
+            global_pool=global_pool,
+            min_base_depth=1,
+            scope=scope_base)
+        scope_test = resnet_name + '_test'
+        _, end_points_test = resnet(
+            inputs,
+            num_classes,
+            global_pool=global_pool,
+            min_base_depth=1,
+            depth_multiplier=depth_multiplier,
+            scope=scope_test)
+        for block in ['block1', 'block2', 'block3', 'block4']:
+          block_name_base = scope_base + '/' + block
+          block_name_test = scope_test + '/' + block
+          self.assertTrue(block_name_base in end_points_base)
+          self.assertTrue(block_name_test in end_points_test)
+          self.assertEqual(
+              len(end_points_base[block_name_base].get_shape().as_list()), 4)
+          self.assertEqual(
+              len(end_points_test[block_name_test].get_shape().as_list()), 4)
+          self.assertListEqual(
+              end_points_base[block_name_base].get_shape().as_list()[:3],
+              end_points_test[block_name_test].get_shape().as_list()[:3])
+          self.assertEqual(
+              int(depth_multiplier *
+                  end_points_base[block_name_base].get_shape().as_list()[3]),
+              end_points_test[block_name_test].get_shape().as_list()[3])
+
+  def testMinBaseDepth(self):
+    resnets = [
+        resnet_v1.resnet_v1_50, resnet_v1.resnet_v1_101,
+        resnet_v1.resnet_v1_152, resnet_v1.resnet_v1_200
+    ]
+    resnet_names = [
+        'resnet_v1_50', 'resnet_v1_101', 'resnet_v1_152', 'resnet_v1_200'
+    ]
+    for resnet, resnet_name in zip(resnets, resnet_names):
+      min_base_depth = 5
+      global_pool = True
+      num_classes = 10
+      inputs = create_test_input(2, 224, 224, 3)
+      with slim.arg_scope(resnet_utils.resnet_arg_scope()):
+        _, end_points = resnet(
+            inputs,
+            num_classes,
+            global_pool=global_pool,
+            min_base_depth=min_base_depth,
+            depth_multiplier=0,
+            scope=resnet_name)
+        for block in ['block1', 'block2', 'block3', 'block4']:
+          block_name = resnet_name + '/' + block
+          self.assertTrue(block_name in end_points)
+          self.assertEqual(
+              len(end_points[block_name].get_shape().as_list()), 4)
+          # The output depth is 4 times base_depth.
+          depth_expected = min_base_depth * 4
+          self.assertEqual(
+              end_points[block_name].get_shape().as_list()[3], depth_expected)
 
 if __name__ == '__main__':
   tf.test.main()

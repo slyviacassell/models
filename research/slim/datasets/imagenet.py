@@ -34,11 +34,10 @@ from __future__ import print_function
 
 import os
 from six.moves import urllib
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+import tf_slim as slim
 
 from datasets import dataset_utils
-
-slim = tf.contrib.slim
 
 # TODO(nsilberman): Add tfrecord file type once the script is updated.
 _FILE_PATTERN = '%s-*'
@@ -57,6 +56,10 @@ _ITEMS_TO_DESCRIPTIONS = {
 }
 
 _NUM_CLASSES = 1001
+
+# If set to false, will not try to set label_to_names in dataset
+# by reading them from labels.txt or github.
+LOAD_READABLE_NAMES = True
 
 
 def create_readable_names_for_imagenet_labels():
@@ -177,11 +180,12 @@ def get_split(split_name, dataset_dir, file_pattern=None, reader=None):
       keys_to_features, items_to_handlers)
 
   labels_to_names = None
-  if dataset_utils.has_labels(dataset_dir):
-    labels_to_names = dataset_utils.read_label_file(dataset_dir)
-  else:
-    labels_to_names = create_readable_names_for_imagenet_labels()
-    dataset_utils.write_label_file(labels_to_names, dataset_dir)
+  if LOAD_READABLE_NAMES:
+    if dataset_utils.has_labels(dataset_dir):
+      labels_to_names = dataset_utils.read_label_file(dataset_dir)
+    else:
+      labels_to_names = create_readable_names_for_imagenet_labels()
+      dataset_utils.write_label_file(labels_to_names, dataset_dir)
 
   return slim.dataset.Dataset(
       data_sources=file_pattern,

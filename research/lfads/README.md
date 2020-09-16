@@ -1,13 +1,16 @@
+![TensorFlow Requirement: 1.x](https://img.shields.io/badge/TensorFlow%20Requirement-1.x-brightgreen)
+![TensorFlow 2 Not Supported](https://img.shields.io/badge/TensorFlow%202%20Not%20Supported-%E2%9C%95-red.svg)
+
 # LFADS - Latent Factor Analysis via Dynamical Systems
 
-This code implements the model from the paper "[LFADS - Latent Factor Analysis via Dynamical Systems](http://biorxiv.org/content/early/2017/06/20/152884)". It is a sequential variational auto-encoder designed specifically for investigating neuroscience data, but can be applied widely to any time series data. In an unsupervised setting, LFADS is able to decompose time series data into various factors, such as an initial condition, a generative dynamical system, control inputs to that generator, and a low dimensional description of the observed data, called the factors. Additionally, the observation model is a loss on a probability distribution, so when LFADS processes a dataset, a denoised version of the dataset is also created. For example, if the dataset is raw spike counts, then under the negative log-likeihood loss under a Poisson distribution, the denoised data would be the inferred Poisson rates.
+This code implements the model from the paper "[LFADS - Latent Factor Analysis via Dynamical Systems](http://biorxiv.org/content/early/2017/06/20/152884)". It is a sequential variational auto-encoder designed specifically for investigating neuroscience data, but can be applied widely to any time series data. In an unsupervised setting, LFADS is able to decompose time series data into various factors, such as an initial condition, a generative dynamical system, control inputs to that generator, and a low dimensional description of the observed data, called the factors. Additionally, the observation model is a loss on a probability distribution, so when LFADS processes a dataset, a denoised version of the dataset is also created. For example, if the dataset is raw spike counts, then under the negative log-likelihood loss under a Poisson distribution, the denoised data would be the inferred Poisson rates.
 
 
 ## Prerequisites
 
 The code is written in Python 2.7.6. You will also need:
 
-* **TensorFlow** version 1.2.1 ([install](https://www.tensorflow.org/install/)) -
+* **TensorFlow** version 1.5 ([install](https://www.tensorflow.org/install/)) -
 * **NumPy, SciPy, Matplotlib** ([install SciPy stack](https://www.scipy.org/install.html), contains all of them)
 * **h5py** ([install](https://pypi.python.org/pypi/h5py))
 
@@ -98,7 +101,18 @@ $ python run_lfads.py --kind=train \
 --output_filename_stem="" \
 --ic_prior_var_max=0.1 \
 --prior_ar_atau=10.0 \
---do_train_io_only=false
+--do_train_io_only=false \
+--do_train_encoder_only=false
+
+# Run LFADS on chaotic rnn data with no input pulses (g = 1.5) with Gaussian noise
+$ python run_lfads.py --kind=train \
+--data_dir=/tmp/rnn_synth_data_v1.0/ \
+--data_filename_stem=gaussian_chaotic_rnn_no_inputs \
+--lfads_save_dir=/tmp/lfads_chaotic_rnn_inputs_g2p5 \
+--co_dim=1 \
+--factors_dim=20 \
+--output_dist=gaussian
+
 
 # Run LFADS on chaotic rnn data with input pulses (g = 2.5)
 $ python run_lfads.py --kind=train \

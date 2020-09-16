@@ -32,7 +32,7 @@ import os
 
 from lxml import etree
 import PIL.Image
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
 from object_detection.utils import dataset_util
 from object_detection.utils import label_map_util
@@ -104,21 +104,22 @@ def dict_to_tf_example(data,
   truncated = []
   poses = []
   difficult_obj = []
-  for obj in data['object']:
-    difficult = bool(int(obj['difficult']))
-    if ignore_difficult_instances and difficult:
-      continue
+  if 'object' in data:
+    for obj in data['object']:
+      difficult = bool(int(obj['difficult']))
+      if ignore_difficult_instances and difficult:
+        continue
 
-    difficult_obj.append(int(difficult))
+      difficult_obj.append(int(difficult))
 
-    xmin.append(float(obj['bndbox']['xmin']) / width)
-    ymin.append(float(obj['bndbox']['ymin']) / height)
-    xmax.append(float(obj['bndbox']['xmax']) / width)
-    ymax.append(float(obj['bndbox']['ymax']) / height)
-    classes_text.append(obj['name'].encode('utf8'))
-    classes.append(label_map_dict[obj['name']])
-    truncated.append(int(obj['truncated']))
-    poses.append(obj['pose'].encode('utf8'))
+      xmin.append(float(obj['bndbox']['xmin']) / width)
+      ymin.append(float(obj['bndbox']['ymin']) / height)
+      xmax.append(float(obj['bndbox']['xmax']) / width)
+      ymax.append(float(obj['bndbox']['ymax']) / height)
+      classes_text.append(obj['name'].encode('utf8'))
+      classes.append(label_map_dict[obj['name']])
+      truncated.append(int(obj['truncated']))
+      poses.append(obj['pose'].encode('utf8'))
 
   example = tf.train.Example(features=tf.train.Features(feature={
       'image/height': dataset_util.int64_feature(height),

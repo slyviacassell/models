@@ -12,30 +12,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
 """Tests for feature_io, the python interface of DelfFeatures."""
 
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from delf import feature_io
-from delf import datum_pb2
-import numpy as np
 import os
+
+from absl import flags
+import numpy as np
 import tensorflow as tf
+
+from delf import feature_io
+
+FLAGS = flags.FLAGS
 
 
 def create_data():
   """Creates data to be used in tests.
-    Returns:
-      locations: [N, 2] float array which denotes the selected keypoint
-        locations. N is the number of features.
-      scales: [N] float array with feature scales.
-      descriptors: [N, depth] float array with DELF descriptors.
-      attention: [N] float array with attention scores.
-      orientations: [N] float array with orientations.
-    """
+
+  Returns:
+    locations: [N, 2] float array which denotes the selected keypoint
+      locations. N is the number of features.
+    scales: [N] float array with feature scales.
+    descriptors: [N, depth] float array with DELF descriptors.
+    attention: [N] float array with attention scores.
+    orientations: [N] float array with orientations.
+  """
   locations = np.arange(8, dtype=np.float32).reshape(4, 2)
   scales = np.arange(4, dtype=np.float32)
   attention = np.arange(4, dtype=np.float32)
@@ -80,8 +84,7 @@ class DelfFeaturesIoTest(tf.test.TestCase):
   def testWriteAndReadToFile(self):
     locations, scales, descriptors, attention, orientations = create_data()
 
-    tmpdir = tf.test.get_temp_dir()
-    filename = os.path.join(tmpdir, 'test.delf')
+    filename = os.path.join(FLAGS.test_tmpdir, 'test.delf')
     feature_io.WriteToFile(filename, locations, scales, descriptors, attention,
                            orientations)
     data_read = feature_io.ReadFromFile(filename)
@@ -91,6 +94,18 @@ class DelfFeaturesIoTest(tf.test.TestCase):
     self.assertAllEqual(descriptors, data_read[2])
     self.assertAllEqual(attention, data_read[3])
     self.assertAllEqual(orientations, data_read[4])
+
+  def testWriteAndReadToFileEmptyFile(self):
+    filename = os.path.join(FLAGS.test_tmpdir, 'test.delf')
+    feature_io.WriteToFile(filename, np.array([]), np.array([]), np.array([]),
+                           np.array([]), np.array([]))
+    data_read = feature_io.ReadFromFile(filename)
+
+    self.assertAllEqual(np.array([]), data_read[0])
+    self.assertAllEqual(np.array([]), data_read[1])
+    self.assertAllEqual(np.array([]), data_read[2])
+    self.assertAllEqual(np.array([]), data_read[3])
+    self.assertAllEqual(np.array([]), data_read[4])
 
 
 if __name__ == '__main__':

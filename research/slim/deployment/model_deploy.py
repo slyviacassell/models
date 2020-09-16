@@ -101,9 +101,8 @@ from __future__ import print_function
 
 import collections
 
-import tensorflow as tf
-
-slim = tf.contrib.slim
+import tensorflow.compat.v1 as tf
+import tf_slim as slim
 
 
 __all__ = ['create_clones',
@@ -230,9 +229,11 @@ def _gather_clone_loss(clone, num_clones, regularization_losses):
       sum_loss = tf.add_n(all_losses)
   # Add the summaries out of the clone device block.
   if clone_loss is not None:
-    tf.summary.scalar(clone.scope + '/clone_loss', clone_loss)
+    tf.summary.scalar('/'.join(filter(None,
+                                      ['Losses', clone.scope, 'clone_loss'])),
+                      clone_loss)
   if regularization_loss is not None:
-    tf.summary.scalar('regularization_loss', regularization_loss)
+    tf.summary.scalar('Losses/regularization_loss', regularization_loss)
   return sum_loss
 
 

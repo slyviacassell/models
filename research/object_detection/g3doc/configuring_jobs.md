@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Tensorflow Object Detection API uses protobuf files to configure the
+The TensorFlow Object Detection API uses protobuf files to configure the
 training and evaluation process. The schema for the training pipeline can be
 found in object_detection/protos/pipeline.proto. At a high level, the config
 file is split into 5 parts:
@@ -13,7 +13,7 @@ file is split into 5 parts:
 model parameters (ie. SGD parameters, input preprocessing and feature extractor
 initialization values).
 3. The `eval_config`, which determines what set of metrics will be reported for
-evaluation (currently we only support the PASCAL VOC metrics).
+evaluation.
 4. The `train_input_config`, which defines what dataset the model should be
 trained on.
 5. The `eval_input_config`, which defines what dataset the model will be
@@ -53,14 +53,14 @@ recommended. Read [our paper](https://arxiv.org/abs/1611.10012) for a more
 detailed discussion on the speed vs accuracy tradeoff.
 
 To help new users get started, sample model configurations have been provided
-in the object_detection/samples/model_configs folder. The contents of these
+in the object_detection/samples/configs folder. The contents of these
 configuration files can be pasted into `model` field of the skeleton
 configuration. Users should note that the `num_classes` field should be changed
 to a value suited for the dataset the user is training on.
 
 ## Defining Inputs
 
-The Tensorflow Object Detection API accepts inputs in the TFRecord file format.
+The TensorFlow Object Detection API accepts inputs in the TFRecord file format.
 Users must specify the locations of both the training and evaluation files.
 Additionally, users should also specify a label map, which define the mapping
 between a class id and class name. The label map should be identical between
@@ -118,30 +118,13 @@ optimizer {
 }
 fine_tune_checkpoint: "/usr/home/username/tmp/model.ckpt-#####"
 from_detection_checkpoint: true
+load_all_detection_checkpoint_vars: true
 gradient_clipping_by_norm: 10.0
 data_augmentation_options {
   random_horizontal_flip {
   }
 }
 ```
-
-### Model Parameter Initialization
-
-While optional, it is highly recommended that users utilize other object
-detection checkpoints. Training an object detector from scratch can take days.
-To speed up the training process, it is recommended that users re-use the
-feature extractor parameters from a pre-existing object classification or
-detection checkpoint. `train_config` provides two fields to specify
-pre-existing checkpoints: `fine_tune_checkpoint` and
-`from_detection_checkpoint`. `fine_tune_checkpoint` should provide a path to
-the pre-existing checkpoint
-(ie:"/usr/home/username/checkpoint/model.ckpt-#####").
-`from_detection_checkpoint` is a boolean value. If false, it assumes the
-checkpoint was from an object classification checkpoint. Note that starting
-from a detection checkpoint will usually result in a faster training job than
-a classification checkpoint.
-
-The list of provided checkpoints can be found [here](detection_model_zoo.md).
 
 ### Input Preprocessing
 
@@ -157,6 +140,8 @@ number of workers, gpu type).
 
 ## Configuring the Evaluator
 
-Currently evaluation is fixed to generating metrics as defined by the PASCAL VOC
-challenge. The parameters for `eval_config` are set to reasonable defaults and
-typically do not need to be configured.
+The main components to set in `eval_config` are `num_examples` and
+`metrics_set`. The parameter `num_examples` indicates the number of batches (
+currently of batch size 1) used for an evaluation cycle, and often is the total
+size of the evaluation dataset. The parameter `metrics_set` indicates which
+metrics to run during evaluation (i.e. `"coco_detection_metrics"`).

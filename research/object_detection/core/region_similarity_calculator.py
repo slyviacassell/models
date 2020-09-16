@@ -1,3 +1,4 @@
+# Lint as: python3
 # Copyright 2017 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,22 +19,27 @@
 Region Similarity Calculators compare a pairwise measure of similarity
 between the boxes in two BoxLists.
 """
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 from abc import ABCMeta
 from abc import abstractmethod
 
-import tensorflow as tf
+import six
+import tensorflow.compat.v1 as tf
 
 from object_detection.core import box_list_ops
+from object_detection.core import standard_fields as fields
 
 
-class RegionSimilarityCalculator(object):
+class RegionSimilarityCalculator(six.with_metaclass(ABCMeta, object)):
   """Abstract base class for region similarity calculator."""
-  __metaclass__ = ABCMeta
 
   def compare(self, boxlist1, boxlist2, scope=None):
     """Computes matrix of pairwise similarity between BoxLists.
 
-    This op (to be overriden) computes a measure of pairwise similarity between
+    This op (to be overridden) computes a measure of pairwise similarity between
     the boxes in the given BoxLists. Higher values indicate more similarity.
 
     Note that this method simply measures similarity and does not explicitly
@@ -74,6 +80,39 @@ class IouSimilarity(RegionSimilarityCalculator):
     return box_list_ops.iou(boxlist1, boxlist2)
 
 
+class DETRSimilarity(RegionSimilarityCalculator):
+  """Class to compute similarity for the Detection Transformer model.
+
+  This class computes pairwise DETR similarity between two BoxLists using a
+  weighted combination of GIOU, classification scores, and the L1 loss.
+  """
+
+  def __init__(self, l1_weight=5, giou_weight=2):
+    super().__init__()
+    self.l1_weight = l1_weight
+    self.giou_weight = giou_weight
+
+  def _compare(self, boxlist1, boxlist2):
+    """Compute pairwise DETR similarity between the two BoxLists.
+
+    Args:
+      boxlist1: BoxList holding N groundtruth boxes.
+      boxlist2: BoxList holding M predicted boxes.
+
+    Returns:
+      A tensor with shape [N, M] representing pairwise DETR similarity scores.
+    """
+    groundtruth_labels = boxlist1.get_field(fields.BoxListFields.classes)
+    predicted_labels = boxlist2.get_field(fields.BoxListFields.classes)
+    classification_scores = tf.matmul(groundtruth_labels,
+                                      predicted_labels,
+                                      transpose_b=True)
+    loss = self.l1_weight * box_list_ops.l1(
+        boxlist1, boxlist2) + self.giou_weight * (1 - box_list_ops.giou(
+            boxlist1, boxlist2)) - classification_scores
+    return -loss
+
+
 class NegSqDistSimilarity(RegionSimilarityCalculator):
   """Class to compute similarity based on the squared distance metric.
 
@@ -112,3 +151,43 @@ class IoaSimilarity(RegionSimilarityCalculator):
       A tensor with shape [N, M] representing pairwise IOA scores.
     """
     return box_list_ops.ioa(boxlist1, boxlist2)
+
+
+class ThresholdedIouSimilarity(RegionSimilarityCalculator):
+  """Class to compute similarity based on thresholded IOU and score.
+
+  This class computes pairwise similarity between two BoxLists based on IOU and
+  a 'score' present in boxlist1. If IOU > threshold, then the entry in the
+  output pairwise tensor will contain `score`, otherwise 0.
+  """
+
+  def __init__(self, iou_threshold=0):
+    """Initialize the ThresholdedIouSimilarity.
+
+    Args:
+      iou_threshold: For a given pair of boxes, if the IOU is > iou_threshold,
+        then the comparison result will be the foreground probability of
+        the first box, otherwise it will be zero.
+    """
+    super(ThresholdedIouSimilarity, self).__init__()
+    self._iou_threshold = iou_threshold
+
+  def _compare(self, boxlist1, boxlist2):
+    """Compute pairwise IOU similarity between the two BoxLists and score.
+
+    Args:
+      boxlist1: BoxList holding N boxes. Must have a score field.
+      boxlist2: BoxList holding M boxes.
+
+    Returns:
+      A tensor with shape [N, M] representing scores threholded by pairwise
+      iou scores.
+    """
+    ious = box_list_ops.iou(boxlist1, boxlist2)
+    scores = boxlist1.get_field(fields.BoxListFields.scores)
+    scores = tf.expand_dims(scores, axis=1)
+    row_replicated_scores = tf.tile(scores, [1, tf.shape(ious)[-1]])
+    thresholded_ious = tf.where(ious > self._iou_threshold,
+                                row_replicated_scores, tf.zeros_like(ious))
+
+    return thresholded_ious

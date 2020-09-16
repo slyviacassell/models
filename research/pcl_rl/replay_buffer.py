@@ -20,6 +20,7 @@ Implements replay buffer in Python.
 
 import random
 import numpy as np
+from six.moves import xrange
 
 
 class ReplayBuffer(object):
@@ -132,7 +133,7 @@ class PrioritizedReplayBuffer(ReplayBuffer):
       self.remove_idx = idxs[-1] + 1 - self.init_length
     elif self.eviction_strategy == 'rank':
       # remove lowest-priority indices
-      idxs = np.argpartition(self.priorities, n)[:n]
+      idxs = np.argpartition(self.priorities, n-1)[:n]
 
     return idxs
 
@@ -150,7 +151,7 @@ class PrioritizedReplayBuffer(ReplayBuffer):
   def get_batch(self, n):
     """Get batch of episodes to train on."""
     p = self.sampling_distribution()
-    idxs = np.random.choice(self.cur_size, size=n, replace=False, p=p)
+    idxs = np.random.choice(self.cur_size, size=int(n), replace=False, p=p)
     self.last_batch = idxs
     return [self.buffer[idx] for idx in idxs], p[idxs]
 

@@ -1,3 +1,4 @@
+# Lint as: python2, python3
 # Copyright 2017 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,7 +17,7 @@
 r"""Tool to export an object detection model for inference.
 
 Prepares an object detection tensorflow graph for inference using model
-configuration and an optional trained checkpoint. Outputs inference
+configuration and a trained checkpoint. Outputs inference
 graph, associated checkpoint files, a frozen inference graph and a
 SavedModel (https://tensorflow.github.io/serving/serving_basic.html).
 
@@ -39,10 +40,22 @@ and the following output nodes returned by the model.postprocess(..):
       [batch, num_boxes] containing class scores for the detections.
   * `detection_classes`: Outputs float32 tensors of the form
       [batch, num_boxes] containing classes for the detections.
-  * `detection_masks`: Outputs float32 tensors of the form
+  * `raw_detection_boxes`: Outputs float32 tensors of the form
+      [batch, raw_num_boxes, 4] containing detection boxes without
+      post-processing.
+  * `raw_detection_scores`: Outputs float32 tensors of the form
+      [batch, raw_num_boxes, num_classes_with_background] containing class score
+      logits for raw detection boxes.
+  * `detection_masks`: (Optional) Outputs float32 tensors of the form
       [batch, num_boxes, mask_height, mask_width] containing predicted instance
       masks for each box if its present in the dictionary of postprocessed
       tensors returned by the model.
+  * detection_multiclass_scores: (Optional) Outputs float32 tensor of shape
+      [batch, num_boxes, num_classes_with_background] for containing class
+      score distribution for detected boxes including background if any.
+  * detection_features: (Optional) float32 tensor of shape
+      [batch, num_boxes, roi_height, roi_width, depth]
+  containing classifier features
 
 Notes:
  * This tool uses `use_moving_averages` from eval_config to decide which
@@ -50,7 +63,7 @@ Notes:
 
 Example Usage:
 --------------
-python export_inference_graph \
+python export_inference_graph.py \
     --input_type image_tensor \
     --pipeline_config_path path/to/ssd_inception_v2.config \
     --trained_checkpoint_prefix path/to/model.ckpt \
@@ -59,19 +72,43 @@ python export_inference_graph \
 The expected output would be in the directory
 path/to/exported_model_directory (which is created if it does not exist)
 with contents:
- - graph.pbtxt
+ - inference_graph.pbtxt
  - model.ckpt.data-00000-of-00001
  - model.ckpt.info
  - model.ckpt.meta
  - frozen_inference_graph.pb
  + saved_model (a directory)
+
+Config overrides (see the `config_override` flag) are text protobufs
+(also of type pipeline_pb2.TrainEvalPipelineConfig) which are used to override
+certain fields in the provided pipeline_config_path.  These are useful for
+making small changes to the inference graph that differ from the training or
+eval config.
+
+Example Usage (in which we change the second stage post-processing score
+threshold to be 0.5):
+
+python export_inference_graph.py \
+    --input_type image_tensor \
+    --pipeline_config_path path/to/ssd_inception_v2.config \
+    --trained_checkpoint_prefix path/to/model.ckpt \
+    --output_directory path/to/exported_model_directory \
+    --config_override " \
+            model{ \
+              faster_rcnn { \
+                second_stage_post_processing { \
+                  batch_non_max_suppression { \
+                    score_threshold: 0.5 \
+                  } \
+                } \
+              } \
+            }"
 """
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from google.protobuf import text_format
 from object_detection import exporter
 from object_detection.protos import pipeline_pb2
 
-slim = tf.contrib.slim
 flags = tf.app.flags
 
 flags.DEFINE_string('input_type', 'image_tensor', 'Type of input node. Can be '
@@ -92,7 +129,35 @@ flags.DEFINE_string('trained_checkpoint_prefix', None,
                     'Path to trained checkpoint, typically of the form '
                     'path/to/model.ckpt')
 flags.DEFINE_string('output_directory', None, 'Path to write outputs.')
-
+flags.DEFINE_string('config_override', '',
+                    'pipeline_pb2.TrainEvalPipelineConfig '
+                    'text proto to override pipeline_config_path.')
+flags.DEFINE_boolean('write_inference_graph', False,
+                     'If true, writes inference graph to disk.')
+flags.DEFINE_string('additional_output_tensor_names', None,
+                    'Additional Tensors to output, to be specified as a comma '
+                    'separated list of tensor names.')
+flags.DEFINE_boolean('use_side_inputs', False,
+                     'If True, uses side inputs as well as image inputs.')
+flags.DEFINE_string('side_input_shapes', None,
+                    'If use_side_inputs is True, this explicitly sets '
+                    'the shape of the side input tensors to a fixed size. The '
+                    'dimensions are to be provided as a comma-separated list '
+                    'of integers. A value of -1 can be used for unknown '
+                    'dimensions. A `/` denotes a break, starting the shape of '
+                    'the next side input tensor. This flag is required if '
+                    'using side inputs.')
+flags.DEFINE_string('side_input_types', None,
+                    'If use_side_inputs is True, this explicitly sets '
+                    'the type of the side input tensors. The '
+                    'dimensions are to be provided as a comma-separated list '
+                    'of types, each of `string`, `integer`, or `float`. '
+                    'This flag is required if using side inputs.')
+flags.DEFINE_string('side_input_names', None,
+                    'If use_side_inputs is True, this explicitly sets '
+                    'the names of the side input tensors required by the model '
+                    'assuming the names will be a comma-separated list of '
+                    'strings. This flag is required if using side inputs.')
 tf.app.flags.mark_flag_as_required('pipeline_config_path')
 tf.app.flags.mark_flag_as_required('trained_checkpoint_prefix')
 tf.app.flags.mark_flag_as_required('output_directory')
@@ -103,6 +168,7 @@ def main(_):
   pipeline_config = pipeline_pb2.TrainEvalPipelineConfig()
   with tf.gfile.GFile(FLAGS.pipeline_config_path, 'r') as f:
     text_format.Merge(f.read(), pipeline_config)
+  text_format.Merge(FLAGS.config_override, pipeline_config)
   if FLAGS.input_shape:
     input_shape = [
         int(dim) if dim != '-1' else None
@@ -110,9 +176,30 @@ def main(_):
     ]
   else:
     input_shape = None
-  exporter.export_inference_graph(FLAGS.input_type, pipeline_config,
-                                  FLAGS.trained_checkpoint_prefix,
-                                  FLAGS.output_directory, input_shape)
+  if FLAGS.use_side_inputs:
+    side_input_shapes, side_input_names, side_input_types = (
+        exporter.parse_side_inputs(
+            FLAGS.side_input_shapes,
+            FLAGS.side_input_names,
+            FLAGS.side_input_types))
+  else:
+    side_input_shapes = None
+    side_input_names = None
+    side_input_types = None
+  if FLAGS.additional_output_tensor_names:
+    additional_output_tensor_names = list(
+        FLAGS.additional_output_tensor_names.split(','))
+  else:
+    additional_output_tensor_names = None
+  exporter.export_inference_graph(
+      FLAGS.input_type, pipeline_config, FLAGS.trained_checkpoint_prefix,
+      FLAGS.output_directory, input_shape=input_shape,
+      write_inference_graph=FLAGS.write_inference_graph,
+      additional_output_tensor_names=additional_output_tensor_names,
+      use_side_inputs=FLAGS.use_side_inputs,
+      side_input_shapes=side_input_shapes,
+      side_input_names=side_input_names,
+      side_input_types=side_input_types)
 
 
 if __name__ == '__main__':

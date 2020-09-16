@@ -1,6 +1,8 @@
 # Quick Start: Distributed Training on the Oxford-IIIT Pets Dataset on Google Cloud
 
-This page is a walkthrough for training an object detector using the Tensorflow
+[![TensorFlow 1.15](https://img.shields.io/badge/TensorFlow-1.15-FF6F00?logo=tensorflow)](https://github.com/tensorflow/tensorflow/releases/tag/v1.15.0)
+
+This page is a walkthrough for training an object detector using the TensorFlow
 Object Detection API. In this tutorial, we'll be training on the Oxford-IIIT Pets
 dataset to build a system to detect various breeds of cats and dogs. The output
 of the detector will look like the following:
@@ -37,10 +39,13 @@ environment variable below:
 export YOUR_GCS_BUCKET=${YOUR_GCS_BUCKET}
 ```
 
-## Installing Tensorflow and the Tensorflow Object Detection API
+It is also possible to run locally by following
+[the running locally instructions](running_locally.md).
+
+## Installing TensorFlow and the TensorFlow Object Detection API
 
 Please run through the [installation instructions](installation.md) to install
-Tensorflow and all it dependencies. Ensure the Protobuf libraries are
+TensorFlow and all it dependencies. Ensure the Protobuf libraries are
 compiled and the library directories are added to `PYTHONPATH`.
 
 ## Getting the Oxford-IIIT Pets Dataset and Uploading it to Google Cloud Storage
@@ -74,14 +79,14 @@ should appear as follows:
 ... other files and directories
 ```
 
-The Tensorflow Object Detection API expects data to be in the TFRecord format,
+The TensorFlow Object Detection API expects data to be in the TFRecord format,
 so we'll now run the `create_pet_tf_record` script to convert from the raw
 Oxford-IIIT Pet dataset into TFRecords. Run the following commands from the
 `tensorflow/models/research/` directory:
 
 ``` bash
 # From tensorflow/models/research/
-python object_detection/create_pet_tf_record.py \
+python object_detection/dataset_tools/create_pet_tf_record.py \
     --label_map_path=object_detection/data/pet_label_map.pbtxt \
     --data_dir=`pwd` \
     --output_dir=`pwd`
@@ -90,17 +95,18 @@ python object_detection/create_pet_tf_record.py \
 Note: It is normal to see some warnings when running this script. You may ignore
 them.
 
-Two TFRecord files named `pet_train.record` and `pet_val.record` should be
-generated in the `tensorflow/models/research/` directory.
+Two 10-sharded TFRecord files named `pet_faces_train.record-*` and
+`pet_faces_val.record-*` should be generated in the
+`tensorflow/models/research/` directory.
 
 Now that the data has been generated, we'll need to upload it to Google Cloud
 Storage so the data can be accessed by ML Engine. Run the following command to
 copy the files into your GCS bucket (substituting `${YOUR_GCS_BUCKET}`):
 
-``` bash
+```bash
 # From tensorflow/models/research/
-gsutil cp pet_train.record gs://${YOUR_GCS_BUCKET}/data/pet_train.record
-gsutil cp pet_val.record gs://${YOUR_GCS_BUCKET}/data/pet_val.record
+gsutil cp pet_faces_train.record-* gs://${YOUR_GCS_BUCKET}/data/
+gsutil cp pet_faces_val.record-* gs://${YOUR_GCS_BUCKET}/data/
 gsutil cp object_detection/data/pet_label_map.pbtxt gs://${YOUR_GCS_BUCKET}/data/pet_label_map.pbtxt
 ```
 
@@ -130,7 +136,7 @@ in the following step.
 
 ## Configuring the Object Detection Pipeline
 
-In the Tensorflow Object Detection API, the model parameters, training
+In the TensorFlow Object Detection API, the model parameters, training
 parameters and eval parameters are all defined by a config file. More details
 can be found [here](configuring_jobs.md). For this tutorial, we will use some
 predefined templates provided with the source code. In the
@@ -173,8 +179,8 @@ the following:
     - model.ckpt.meta
     - model.ckpt.data-00000-of-00001
     - pet_label_map.pbtxt
-    - pet_train.record
-    - pet_val.record
+    - pet_faces_train.record-*
+    - pet_faces_val.record-*
 ```
 
 You can inspect your bucket using the [Google Cloud Storage
@@ -184,60 +190,44 @@ browser](https://console.cloud.google.com/storage/browser).
 
 Before we can start a job on Google Cloud ML Engine, we must:
 
-1. Package the Tensorflow Object Detection code.
+1. Package the TensorFlow Object Detection code.
 2. Write a cluster configuration for our Google Cloud ML job.
 
-To package the Tensorflow Object Detection code, run the following commands from
+To package the TensorFlow Object Detection code, run the following commands from
 the `tensorflow/models/research/` directory:
 
-``` bash
+```bash
 # From tensorflow/models/research/
+bash object_detection/dataset_tools/create_pycocotools_package.sh /tmp/pycocotools
 python setup.py sdist
 (cd slim && python setup.py sdist)
 ```
 
-You should see two tar.gz files created at `dist/object_detection-0.1.tar.gz`
-and `slim/dist/slim-0.1.tar.gz`.
+This will create python packages dist/object_detection-0.1.tar.gz,
+slim/dist/slim-0.1.tar.gz, and /tmp/pycocotools/pycocotools-2.0.tar.gz.
 
-For running the training Cloud ML job, we'll configure the cluster to use 10
-training jobs (1 master + 9 workers) and three parameters servers. The
+For running the training Cloud ML job, we'll configure the cluster to use 5
+training jobs and three parameters servers. The
 configuration file can be found at `object_detection/samples/cloud/cloud.yml`.
 
-To start training, execute the following command from the
+Note: The code sample below is supported for use with 1.12 runtime version.
+
+To start training and evaluation, execute the following command from the
 `tensorflow/models/research/` directory:
 
-``` bash
+```bash
 # From tensorflow/models/research/
-gcloud ml-engine jobs submit training `whoami`_object_detection_`date +%s` \
-    --job-dir=gs://${YOUR_GCS_BUCKET}/train \
-    --packages dist/object_detection-0.1.tar.gz,slim/dist/slim-0.1.tar.gz \
-    --module-name object_detection.train \
+gcloud ml-engine jobs submit training `whoami`_object_detection_pets_`date +%m_%d_%Y_%H_%M_%S` \
+    --runtime-version 1.12 \
+    --job-dir=gs://${YOUR_GCS_BUCKET}/model_dir \
+    --packages dist/object_detection-0.1.tar.gz,slim/dist/slim-0.1.tar.gz,/tmp/pycocotools/pycocotools-2.0.tar.gz \
+    --module-name object_detection.model_main \
     --region us-central1 \
     --config object_detection/samples/cloud/cloud.yml \
     -- \
-    --train_dir=gs://${YOUR_GCS_BUCKET}/train \
+    --model_dir=gs://${YOUR_GCS_BUCKET}/model_dir \
     --pipeline_config_path=gs://${YOUR_GCS_BUCKET}/data/faster_rcnn_resnet101_pets.config
 ```
-
-Once training has started, we can run an evaluation concurrently:
-
-``` bash
-# From tensorflow/models/research/
-gcloud ml-engine jobs submit training `whoami`_object_detection_eval_`date +%s` \
-    --job-dir=gs://${YOUR_GCS_BUCKET}/train \
-    --packages dist/object_detection-0.1.tar.gz,slim/dist/slim-0.1.tar.gz \
-    --module-name object_detection.eval \
-    --region us-central1 \
-    --scale-tier BASIC_GPU \
-    -- \
-    --checkpoint_dir=gs://${YOUR_GCS_BUCKET}/train \
-    --eval_dir=gs://${YOUR_GCS_BUCKET}/eval \
-    --pipeline_config_path=gs://${YOUR_GCS_BUCKET}/data/faster_rcnn_resnet101_pets.config
-```
-
-Note: Even though we're running an evaluation job, the `gcloud ml-engine jobs
-submit training` command is correct. ML Engine does not distinguish between
-training and evaluation jobs.
 
 Users can monitor and stop training and evaluation jobs on the [ML Engine
 Dashboard](https://console.cloud.google.com/mlengine/jobs).
@@ -247,18 +237,20 @@ Dashboard](https://console.cloud.google.com/mlengine/jobs).
 You can monitor progress of the training and eval jobs by running Tensorboard on
 your local machine:
 
-``` bash
+```bash
 # This command needs to be run once to allow your local machine to access your
 # GCS bucket.
 gcloud auth application-default login
 
-tensorboard --logdir=gs://${YOUR_GCS_BUCKET}
+tensorboard --logdir=gs://${YOUR_GCS_BUCKET}/model_dir
 ```
 
 Once Tensorboard is running, navigate to `localhost:6006` from your favourite
 web browser. You should see something similar to the following:
 
 ![](img/tensorboard.png)
+
+Make sure your Tensorboard version is the same minor version as your TensorFlow (1.x)
 
 You will also want to click on the images tab to see example detections made by
 the model while it trains. After about an hour and a half of training, you can
@@ -275,14 +267,14 @@ the training jobs are configured to go for much longer than is necessary for
 convergence.  To save money, we recommend killing your jobs once you've seen
 that they've converged.
 
-## Exporting the Tensorflow Graph
+## Exporting the TensorFlow Graph
 
-After your model has been trained, you should export it to a Tensorflow
-graph proto. First, you need to identify a candidate checkpoint to export. You
-can search your bucket using the [Google Cloud Storage
+After your model has been trained, you should export it to a TensorFlow graph
+proto. First, you need to identify a candidate checkpoint to export. You can
+search your bucket using the [Google Cloud Storage
 Browser](https://console.cloud.google.com/storage/browser). The file should be
-stored under `${YOUR_GCS_BUCKET}/train`. The checkpoint will typically consist of
-three files:
+stored under `${YOUR_GCS_BUCKET}/model_dir`. The checkpoint will typically
+consist of three files:
 
 * `model.ckpt-${CHECKPOINT_NUMBER}.data-00000-of-00001`
 * `model.ckpt-${CHECKPOINT_NUMBER}.index`
@@ -291,9 +283,9 @@ three files:
 After you've identified a candidate checkpoint to export, run the following
 command from `tensorflow/models/research/`:
 
-``` bash
+```bash
 # From tensorflow/models/research/
-gsutil cp gs://${YOUR_GCS_BUCKET}/train/model.ckpt-${CHECKPOINT_NUMBER}.* .
+gsutil cp gs://${YOUR_GCS_BUCKET}/model_dir/model.ckpt-${CHECKPOINT_NUMBER}.* .
 python object_detection/export_inference_graph.py \
     --input_type image_tensor \
     --pipeline_config_path object_detection/samples/configs/faster_rcnn_resnet101_pets.config \
@@ -303,6 +295,21 @@ python object_detection/export_inference_graph.py \
 
 Afterwards, you should see a directory named `exported_graphs` containing the
 SavedModel and frozen graph.
+
+## Configuring the Instance Segmentation Pipeline
+
+Mask prediction can be turned on for an object detection config by adding
+`predict_instance_masks: true` within the `MaskRCNNBoxPredictor`. Other
+parameters such as mask size, number of convolutions in the mask layer, and the
+convolution hyper parameters can be defined. We will use
+`mask_rcnn_resnet101_pets.config` as a starting point for configuring the
+instance segmentation pipeline. Everything above that was mentioned about object
+detection holds true for instance segmentation. Instance segmentation consists
+of an object detection model with an additional head that predicts the object
+mask inside each predicted box once we remove the training and other details.
+Please refer to the section on [Running an Instance Segmentation
+Model](instance_segmentation.md) for instructions on how to configure a model
+that predicts masks in addition to object bounding boxes.
 
 ## What's Next
 
